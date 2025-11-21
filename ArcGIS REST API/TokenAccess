@@ -1,0 +1,29 @@
+// Query name: AutoToken
+() as text =>
+let
+    client_id     = "<client_Id>",
+    client_secret = "<client_secret>",
+
+    TokenBody = [
+        client_id     = client_id,
+        client_secret = client_secret,
+        grant_type    = "client_credentials"
+    ],
+
+    TokenResponse =
+        Json.Document(
+            Web.Contents(
+                "https://www.arcgis.com/sharing/rest/oauth2/token",
+                [
+                    Content = Text.ToBinary(Uri.BuildQueryString(TokenBody)),
+                    Headers = [#"Content-Type" = "application/x-www-form-urlencoded"]
+                ]
+            )
+        ),
+
+    token =
+        if Record.HasFields(TokenResponse, "access_token")
+        then TokenResponse[access_token]
+        else error "Token request failed"
+in
+    token
