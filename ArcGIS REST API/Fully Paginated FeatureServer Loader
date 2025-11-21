@@ -1,0 +1,94 @@
+// ======================================================
+// ArcGIS FeatureServer - Full Pagination
+// Safe for GitHub: no secrets in code.
+// Depends on AutoToken() and ArcGIS_FeatureServerURL param.
+// ======================================================
+
+let
+    // Settings
+    PageSize = 2000,
+    fsURL = ArcGIS_FeatureServerURL,
+
+    // ----------------------------------------------
+    // Function: GetPage(offset)
+    // Retrieves a page of results (0–1999, 2000–3999…)
+    // ----------------------------------------------
+    GetPage = (offset as number) as table =>
+        let
+            token = AutoToken(),
+
+            Source = Json.Document(
+                Web.Contents(
+                    fsURL & "query",
+                    [
+                        Query = [
+                            where = "OBJECTID>0",
+                            outFields = "*",
+                            returnGeometry = "false",
+                            f = "json",
+                            token = token,
+                            resultOffset = Text.From(offset),
+                            resultRecordCount = Text.From(PageSize)
+                        ]
+                    ]
+                )
+            ),
+
+            // Extract features list
+            FeaturesList =
+                try Source[features]
+                otherwise {},
+
+            // Convert list to table
+            FeaturesTable =
+                Table.FromList(
+                    FeaturesList,
+                    Splitter.SplitByNothing(),
+                    {"Feature"},
+                    null,
+                    ExtraValues.Error
+                ),
+
+            // Extract attributes
+            ExpandedFeature =
+                Table.ExpandRecordColumn(
+                    FeaturesTable,
+                    "Feature",
+                    {"attributes"},
+                    {"attributes"}
+                ),
+
+            // Expand columns (schema auto-detect)
+            ExpandedAttributes =
+                Table.ExpandRecordColumn(
+                    ExpandedFeature,
+                    "attributes",
+                    Record.FieldNames(ExpandedFeature{0}[attributes]),
+                    Record.FieldNames(ExpandedFeature{0}[attributes])
+                )
+        in
+            ExpandedAttributes,
+
+    // ----------------------------------------------
+    // Pagination Engine
+    // Loop through pages until empty
+    // ----------------------------------------------
+    Pages =
+        List.Generate(
+            () => [Offset = 0, Tbl = GetPage(0)],
+            each Table.RowCount([Tbl]) > 0,
+            each [
+                Offset = [Offset] + PageSize,
+                Tbl = GetPage([Offset])
+            ],
+            each [Tbl]
+        ),
+
+    // Combine all pages into one table
+    Combined =
+        if List.Count(Pages) = 0
+        then #table({}, {})
+        else Table.Combine(Pages)
+
+in
+    Combined
